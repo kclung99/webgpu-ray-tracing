@@ -1,0 +1,8 @@
+## webgpu ray tracing
+browser-based ray tracing implementation using webgpu with no extra dependencies
+
+![render output](./render.png)
+
+## references 
+- [_Ray Tracing in One Weekend_](https://raytracing.github.io/books/RayTracingInOneWeekend.html)
+- [_WebGPU Fundamentals_](https://webgpufundamentals.org/webgpu/lessons/webgpu-fundamentals.html)
