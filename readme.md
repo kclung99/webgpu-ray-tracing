@@ -1,5 +1,7 @@
 ## webgpu ray tracing
-browser-based ray tracing implementation using webgpu with no extra dependencies
+browser-based ray tracing implementation using webgpu with no extra dependencies.
+
+[view live demo](https://kclung99.github.io/webgpu-ray-tracing/)
 
 ![render output](./render.png)
 
