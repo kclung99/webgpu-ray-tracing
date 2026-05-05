@@ -18,9 +18,19 @@ export function createFinalScene() {
         return index;
     }
 
-    function addSphere(center, radius, materialIndex) {
+    function addStationarySphere(center, radius, materialIndex) {
         spheres.push({
-            center,
+            center0: center,
+            center1: center,
+            radius,
+            materialIndex,
+        });
+    }
+
+    function addMovingSphere(center0, center1, radius, materialIndex) {
+        spheres.push({
+            center0,
+            center1,
             radius,
             materialIndex,
         });
@@ -34,7 +44,7 @@ export function createFinalScene() {
         albedo: vec3.fromValues(0.5, 0.5, 0.5),
     });
 
-    addSphere(vec3.fromValues(0, -1000, 0), 1000, groundMat);
+    addStationarySphere(vec3.fromValues(0, -1000, 0), 1000, groundMat);
 
     // many small spheres
     for (let a = -11; a < 11; a++) {
@@ -52,7 +62,6 @@ export function createFinalScene() {
             vec3.sub(offset, center, bigSphereCenter);
 
             const awayFromBigSphere = vec3.length(offset) > 0.9;
-
             if (!awayFromBigSphere) continue;
 
             let materialIndex;
@@ -68,6 +77,14 @@ export function createFinalScene() {
                     refractionIndex: 0.0,
                     albedo,
                 });
+
+                const center2 = vec3.fromValues(
+                    center[0],
+                    center[1] + randomDouble(0.0, 0.5),
+                    center[2],
+                );
+
+                addMovingSphere(center, center2, 0.2, materialIndex);
             } else if (chooseMat < 0.95) {
                 // metal
                 const albedo = vec3.random(0.5, 1.0);
@@ -79,6 +96,8 @@ export function createFinalScene() {
                     refractionIndex: 0.0,
                     albedo,
                 });
+
+                addStationarySphere(center, 0.2, materialIndex);
             } else {
                 // glass
                 materialIndex = addMaterial({
@@ -87,9 +106,9 @@ export function createFinalScene() {
                     refractionIndex: 1.5,
                     albedo: vec3.fromValues(1.0, 1.0, 1.0),
                 });
-            }
 
-            addSphere(center, 0.2, materialIndex);
+                addStationarySphere(center, 0.2, materialIndex);
+            }
         }
     }
 
@@ -101,7 +120,7 @@ export function createFinalScene() {
         albedo: vec3.fromValues(1.0, 1.0, 1.0),
     });
 
-    addSphere(vec3.fromValues(0, 1, 0), 1.0, material1);
+    addStationarySphere(vec3.fromValues(0, 1, 0), 1.0, material1);
 
     const material2 = addMaterial({
         kind: MAT_LAMBERTIAN,
@@ -110,7 +129,7 @@ export function createFinalScene() {
         albedo: vec3.fromValues(0.4, 0.2, 0.1),
     });
 
-    addSphere(vec3.fromValues(-4, 1, 0), 1.0, material2);
+    addStationarySphere(vec3.fromValues(-4, 1, 0), 1.0, material2);
 
     const material3 = addMaterial({
         kind: MAT_METAL,
@@ -119,7 +138,7 @@ export function createFinalScene() {
         albedo: vec3.fromValues(0.7, 0.6, 0.5),
     });
 
-    addSphere(vec3.fromValues(4, 1, 0), 1.0, material3);
+    addStationarySphere(vec3.fromValues(4, 1, 0), 1.0, material3);
 
     return { materials, spheres };
 }

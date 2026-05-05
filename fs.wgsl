@@ -1,6 +1,7 @@
 struct Ray {
     orig: vec3f,
-    dir: vec3f
+    dir: vec3f,
+    tm: f32,
 };
 
 struct Camera {
@@ -33,13 +34,11 @@ struct Material {
 }
 
 struct Sphere {
-    center: vec3f,
+    center0: vec3f,
     radius: f32,
 
+    center1: vec3f,
     materialIndex: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
 }
 
 struct HitRecord {
@@ -195,6 +194,10 @@ fn colorCorrection(color: vec3f) -> vec3f {
     return vec3f(r, g, b);
 }
 
+fn sphereCenter(s: Sphere, time: f32) -> vec3f {
+    return s.center0 + time * (s.center1 - s.center0);
+}
+
 fn reflect(v: vec3f, normal: vec3f) -> vec3f {
     return v - 2 * dot(v, normal) * normal;
 }
@@ -230,7 +233,7 @@ fn scatter(rIn: Ray, rec: HitRecord, mat: Material, seed: ptr<function, u32>) ->
 
         result.scatter = true;
         result.attenuation = mat.albedo;
-        result.scatterRay = Ray(rec.p, direction);
+        result.scatterRay = Ray(rec.p, direction, rIn.tm);
 
         return result;
     } 
@@ -241,7 +244,7 @@ fn scatter(rIn: Ray, rec: HitRecord, mat: Material, seed: ptr<function, u32>) ->
 
         result.scatter = dot(reflected, rec.normal) > 0.0;
         result.attenuation = mat.albedo;
-        result.scatterRay = Ray(rec.p, reflected);
+        result.scatterRay = Ray(rec.p, reflected, rIn.tm);
 
         return result;
     }
@@ -266,7 +269,7 @@ fn scatter(rIn: Ray, rec: HitRecord, mat: Material, seed: ptr<function, u32>) ->
 
         result.scatter = true;
         result.attenuation = vec3f(1.0, 1.0, 1.0);
-        result.scatterRay = Ray(rec.p, direction);
+        result.scatterRay = Ray(rec.p, direction, rIn.tm);
 
         return result;
     }
@@ -284,23 +287,25 @@ fn rayAt(r: Ray, t: f32) -> vec3f {
 }
 
 fn getRay(fragCoord: vec2f, seed: ptr<function, u32>) -> Ray {
-    // jitter
+    // normalized 2D img coord
     let offset = sampleSquare(seed);
     let uv = (fragCoord + offset) / camera.resolution;
 
     let aspect = camera.resolution.x / camera.resolution.y;
     let halfHeight = camera.tanHalfFovY * camera.focalLength;
 
+    // remapped 2D img-plane offset in world space
     let x = ((2.0 * uv.x) - 1.0) * (aspect * halfHeight);
     let y = (1.0 - (2.0 * uv.y)) * halfHeight;
 
-    // point on focus plane
+    // 3D world space point build from offsets
     let pixelSample = camera.position + (x * camera.u) + (y * camera.v) - (focusDist * camera.w);
 
     let rayOrigin = select(defocusDiskSample(seed), camera.position, defocusAngle <= 0);
     let rayDirection = pixelSample - rayOrigin;
+    let rayTime = randomFloat(seed);
     
-    return Ray(rayOrigin, rayDirection);
+    return Ray(rayOrigin, rayDirection, rayTime);
 }
 
 fn setFaceNormal(rec: HitRecord, r: Ray, outwardNormal: vec3f) -> HitRecord {
@@ -323,7 +328,8 @@ fn hitSphere(s: Sphere, r: Ray, interval: Interval) -> HitRecord {
     var rec: HitRecord;
     rec.hit = false;
 
-    let oc = s.center - r.orig; // ray origin to sphere center
+    let center = sphereCenter(s, r.tm);
+    let oc = center - r.orig; // ray origin to sphere center
     let a = dot(r.dir, r.dir);
     let h = dot(r.dir, oc); // b = -2h
     let c = dot(oc, oc) - (s.radius * s.radius);
@@ -346,7 +352,7 @@ fn hitSphere(s: Sphere, r: Ray, interval: Interval) -> HitRecord {
 
     rec.t = root;
     rec.p = rayAt(r, rec.t);
-    let outwardNormal = (rec.p - s.center) / s.radius; // unit normal
+    let outwardNormal = (rec.p - center) / s.radius; // unit normal
     rec = setFaceNormal(rec, r, outwardNormal);
     rec.materialIndex = s.materialIndex;
 
@@ -408,6 +414,7 @@ fn rayColor(r0: Ray, seed: ptr<function, u32>) -> vec3f {
     var pixelColor = vec3f(0.0);
 
     for (var sample = 0u; sample < params.samplesPerFrame; sample = sample + 1u) {
+        // create random seed
         var seed = (u32(fragCoord.x) * 1973u) 
         + (u32(fragCoord.y) * 9277u) 
         + params.frameIndex * 26699u
@@ -420,6 +427,7 @@ fn rayColor(r0: Ray, seed: ptr<function, u32>) -> vec3f {
 
     pixelColor /= f32(params.samplesPerFrame);
 
+    // calc color w/ running avg
     let pixel = vec2u(fragCoord.xy);
     let oldColor = textureLoad(oldAccum, pixel, 0).rgb;
 

@@ -119,9 +119,10 @@ async function main() {
     const SLOTS_PER_SPHERE = 8;
     const BYTES_PER_SPHERE = SLOTS_PER_SPHERE * 4; // 32 bit each
 
-    const SPHERE_OFFSET_CENTER = 0; // 0, 1, 2
+    const SPHERE_OFFSET_CENTER0 = 0; // 0, 1, 2
     const SPHERE_OFFSET_RADIUS = 3;
-    const SPHERE_OFFSET_MATERIAL_INDEX = 4;
+    const SPHERE_OFFSET_CENTER1 = 4; // 4, 5, 6
+    const SPHERE_OFFSET_MATERIAL_INDEX = 7;
 
     // material
     const SLOTS_PER_MATERIAL = 8;
@@ -143,13 +144,11 @@ async function main() {
     function writeSphere(i, sphere) {
         const base = i * SLOTS_PER_SPHERE;
 
-        sphereF32.set(sphere.center, base + SPHERE_OFFSET_CENTER);
+        sphereF32.set(sphere.center0, base + SPHERE_OFFSET_CENTER0);
         sphereF32[base + SPHERE_OFFSET_RADIUS] = sphere.radius;
 
+        sphereF32.set(sphere.center1, base + SPHERE_OFFSET_CENTER1);
         sphereU32[base + SPHERE_OFFSET_MATERIAL_INDEX] = sphere.materialIndex;
-        sphereU32[base + 5] = 0;
-        sphereU32[base + 6] = 0;
-        sphereU32[base + 7] = 0;
     }
 
     for (let i = 0; i < spheres.length; i++) {
