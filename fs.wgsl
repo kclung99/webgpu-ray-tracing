@@ -41,6 +41,19 @@ struct Sphere {
     materialIndex: u32,
 }
 
+struct BVHNode {
+    bboxMin: vec3f,
+    leftIndex: i32,
+
+    bboxMax: vec3f,
+    rightIndex: i32,
+
+    sphereIndex: i32,
+    sphereCount: u32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
 struct HitRecord {
     p: vec3f,
     normal: vec3f,
@@ -64,8 +77,8 @@ struct Interval {
 struct Params {
     frameIndex: u32,
     samplesPerFrame: u32,
-    _pad0: u32,
-    _pad1: u32,
+    bvhRootIndex: u32,
+    bvhNodeCount: u32,
 }
 
 @group(0) @binding(0)
@@ -82,6 +95,9 @@ var<uniform> params: Params;
 
 @group(0) @binding(4)
 var oldAccum: texture_2d<f32>;
+
+@group(0) @binding(5)
+var<storage, read> bvhNodes: array<BVHNode>;
 
 const INFINITY: f32 = 1e30;
 const PI: f32 = 3.1415926535897932385;
@@ -324,6 +340,36 @@ fn setFaceNormal(rec: HitRecord, r: Ray, outwardNormal: vec3f) -> HitRecord {
     return out;
 }
 
+fn hitAABB(ray: Ray, bboxMin: vec3f, bboxMax: vec3f, tMinIn: f32, tMaxIn: f32) -> bool {
+   var tMin = tMinIn;
+   var tMax = tMaxIn;
+
+   // slab method (overlapping t on all axis)
+   for (var axis = 0u; axis < 3u; axis = axis + 1u) {
+        let invD = 1.0 / ray.dir[axis];
+        
+        var t0 = (bboxMin[axis] - ray.orig[axis]) * invD;
+        var t1 = (bboxMax[axis] - ray.orig[axis]) * invD;
+
+        // swap t0, t1 if needed
+        if (t0 > t1) {
+            let temp = t0;
+            t0 = t1;
+            t1 = temp;
+        }
+
+        // update t range
+        tMin = max(tMin, t0);
+        tMax = min(tMax, t1);
+
+        if (tMax <= tMin) {
+            return false;
+        }
+   }
+
+   return true;
+}
+
 fn hitSphere(s: Sphere, r: Ray, interval: Interval) -> HitRecord {
     var rec: HitRecord;
     rec.hit = false;
@@ -361,20 +407,84 @@ fn hitSphere(s: Sphere, r: Ray, interval: Interval) -> HitRecord {
     return rec;
 }
 
-fn hitWorld(r: Ray, interval: Interval) -> HitRecord {
+// fn hitWorld(r: Ray, interval: Interval) -> HitRecord {
+//     var rec: HitRecord;
+//     rec.hit = false;
+
+//     var closestSoFar = interval.max;
+//     let sphereCount = arrayLength(&spheres); // world is just spheres now
+
+//     for (var i = 0u; i < sphereCount; i = i + 1u) {
+//         let currentInterval = Interval(interval.min, closestSoFar);
+//         let tempRec = hitSphere(spheres[i], r, currentInterval);
+
+//         if (tempRec.hit) {
+//             closestSoFar = tempRec.t;
+//             rec = tempRec;
+//         }
+//     }
+
+//     return rec;
+// }
+
+fn hitWorldBVH(r: Ray, interval: Interval) -> HitRecord {
     var rec: HitRecord;
     rec.hit = false;
 
     var closestSoFar = interval.max;
-    let sphereCount = arrayLength(&spheres); // world is just spheres now
 
-    for (var i = 0u; i < sphereCount; i = i + 1u) {
-        let currentInterval = Interval(interval.min, closestSoFar);
-        let tempRec = hitSphere(spheres[i], r, currentInterval);
+    // fixed-size stack
+    var stack: array<u32, 128>;
+    var stackPtr = 0u;
 
-        if (tempRec.hit) {
-            closestSoFar = tempRec.t;
-            rec = tempRec;
+    // start from root node
+    stack[stackPtr] = params.bvhRootIndex;
+    stackPtr = stackPtr + 1u;
+
+    // recursion impl as iteration
+    loop {
+        if (stackPtr == 0u) {
+            break;
+        }
+
+        // pop one node index
+        stackPtr = stackPtr - 1u;
+        let nodeIndex = stack[stackPtr];
+        let node = bvhNodes[nodeIndex];
+
+        // if ray misses this node bbox, skip whole subtree
+        if (!hitAABB(r, node.bboxMin, node.bboxMax, interval.min, closestSoFar)) {
+            continue;
+        }
+
+        // leaf node: test actual sphere
+        if (node.sphereCount > 0u) {
+            let sphereIndex = u32(node.sphereIndex);
+
+            let currentInterval = Interval(interval.min, closestSoFar);
+            let tempRec = hitSphere(spheres[sphereIndex], r, currentInterval);
+
+            if (tempRec.hit) {
+                closestSoFar = tempRec.t;
+                rec = tempRec;
+            }
+
+            continue;
+        }
+
+        // internal node: push children to stack
+        if (node.leftIndex >= 0) {
+            if (stackPtr < 128u) {
+                stack[stackPtr] = u32(node.leftIndex);
+                stackPtr = stackPtr + 1u;
+            }
+        }
+
+        if (node.rightIndex >= 0) {
+            if (stackPtr < 128u) {
+                stack[stackPtr] = u32(node.rightIndex);
+                stackPtr = stackPtr + 1u;
+            }
         }
     }
 
@@ -387,7 +497,7 @@ fn rayColor(r0: Ray, seed: ptr<function, u32>) -> vec3f {
 
     // bouncing ray
     for (var depth = 0u; depth < maxDepth; depth = depth + 1u) {
-        let rec = hitWorld(r, Interval(0.001, INFINITY)); // fix shadow acne
+        let rec = hitWorldBVH(r, Interval(0.001, INFINITY)); // fix shadow acne
         if (rec.hit) {
             let mat = materials[rec.materialIndex];
             let s: ScatterRecord = scatter(r, rec, mat, seed);

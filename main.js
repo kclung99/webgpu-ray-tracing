@@ -115,6 +115,8 @@ async function main() {
     });
     device.queue.writeBuffer(cameraBuffer, 0, cameraData);
 
+    const { materials, spheres, bvh } = createFinalScene();
+
     // sphere
     const SLOTS_PER_SPHERE = 8;
     const BYTES_PER_SPHERE = SLOTS_PER_SPHERE * 4; // 32 bit each
@@ -134,7 +136,19 @@ async function main() {
 
     const MAT_OFFSET_ALBEDO = 4;
 
-    const { materials, spheres } = createFinalScene();
+    // bvh node
+    const SLOTS_PER_BVH_NODE = 12;
+    const BYTES_PER_BVH_NODE = SLOTS_PER_BVH_NODE * 4;
+
+    const BVH_OFFSET_BBOX_MIN = 0; // 0, 1, 2
+    const BVH_OFFSET_LEFT_INDEX = 3;
+
+    const BVH_OFFSET_BBOX_MAX = 4; // 4, 5, 6
+    const BVH_OFFSET_RIGHT_INDEX = 7;
+
+    const BVH_OFFSET_SPHERE_INDEX = 8;
+    const BVH_OFFSET_SPHERE_COUNT = 9;
+
 
     // sphere buffer
     const sphereBufferData = new ArrayBuffer(spheres.length * BYTES_PER_SPHERE); // raw bytes
@@ -187,6 +201,39 @@ async function main() {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     device.queue.writeBuffer(materialBuffer, 0, materialBufferData);
+
+    // bvh buffer
+    const bvhBufferData = new ArrayBuffer(bvh.nodes.length * BYTES_PER_BVH_NODE);
+    const bvhF32 = new Float32Array(bvhBufferData);
+    const bvhI32 = new Int32Array(bvhBufferData);
+    const bvhU32 = new Uint32Array(bvhBufferData);
+
+    function writeBVHNode(i, node) {
+        const base = i * SLOTS_PER_BVH_NODE;
+
+        bvhF32.set(node.bbox.min, base + BVH_OFFSET_BBOX_MIN);
+        bvhI32[base + BVH_OFFSET_LEFT_INDEX] = node.leftIndex;
+
+        bvhF32.set(node.bbox.max, base + BVH_OFFSET_BBOX_MAX);
+        bvhI32[base + BVH_OFFSET_RIGHT_INDEX] = node.rightIndex;
+
+        bvhI32[base + BVH_OFFSET_SPHERE_INDEX] = node.sphereIndex;
+        bvhU32[base + BVH_OFFSET_SPHERE_COUNT] = node.sphereCount;
+
+        bvhU32[base + 10] = 0;
+        bvhU32[base + 11] = 0;
+    }
+
+    for (let i = 0; i < bvh.nodes.length; i++) {
+        writeBVHNode(i, bvh.nodes[i]);
+    }
+
+    const bvhBuffer = device.createBuffer({
+        size: bvhBufferData.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    device.queue.writeBuffer(bvhBuffer, 0, bvhBufferData);
 
     // render params
     const paramsData = new Uint32Array(4);
@@ -256,6 +303,10 @@ async function main() {
                     binding: 4,
                     resource: oldAccumView
                 },
+                {
+                    binding: 5,
+                    resource: { buffer: bvhBuffer }
+                },
             ]
         });
     }
@@ -285,6 +336,8 @@ async function main() {
     function render() {
         paramsData[0] = frameIndex;
         paramsData[1] = samplesPerFrame;
+        paramsData[2] = bvh.rootIndex;
+        paramsData[3] = bvh.nodes.length;
 
         device.queue.writeBuffer(paramsBuffer, 0, paramsData);
 

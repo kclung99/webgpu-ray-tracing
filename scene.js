@@ -1,4 +1,6 @@
 import { vec3 } from "./vec3.js";
+import { sphereAABB, surroundingAABB } from "./aabb.js";
+import { buildBVH } from "./bvh.js";
 
 const MAT_LAMBERTIAN = 0;
 const MAT_METAL = 1;
@@ -19,21 +21,30 @@ export function createFinalScene() {
     }
 
     function addStationarySphere(center, radius, materialIndex) {
-        spheres.push({
+        const sphere = {
             center0: center,
             center1: center,
             radius,
             materialIndex,
-        });
+            bbox: sphereAABB(center, radius),
+        };
+
+        spheres.push(sphere);
     }
 
     function addMovingSphere(center0, center1, radius, materialIndex) {
-        spheres.push({
+        const bbox0 = sphereAABB(center0, radius);
+        const bbox1 = sphereAABB(center1, radius);
+
+        const sphere = {
             center0,
             center1,
             radius,
             materialIndex,
-        });
+            bbox: surroundingAABB(bbox0, bbox1),
+        };
+
+        spheres.push(sphere);
     }
 
     // ground
@@ -140,5 +151,7 @@ export function createFinalScene() {
 
     addStationarySphere(vec3.fromValues(4, 1, 0), 1.0, material3);
 
-    return { materials, spheres };
+    const bvh = buildBVH(spheres);
+
+    return { materials, spheres, bvh };
 }
